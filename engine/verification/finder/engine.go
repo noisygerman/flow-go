@@ -172,8 +172,8 @@ func (e *Engine) process(originID flow.Identifier, event interface{}) error {
 	return nil
 }
 
-// handleExecutionReceipt receives an execution receipt and adds it to the cached receipt mempool.
-func (e *Engine) handleExecutionReceipt(originID flow.Identifier, receipt *flow.ExecutionReceipt) error {
+// addToReady receives an execution receipt and adds it to the ready receipt mempool.
+func (e *Engine) addToReady(receipt *flow.ExecutionReceipt) {
 	span, ok := e.tracer.GetSpan(receipt.ID(), trace.VERProcessExecutionReceipt)
 	ctx := context.Background()
 	if !ok {
@@ -553,7 +553,7 @@ func (e *Engine) discardReceiptsFromPending(receiptIDs flow.IdentifierList, bloc
 // their corresponding receipt from pending to ready mempools.
 func (e *Engine) checkPendingReceipts() {
 	for _, blockID := range e.blockIDsCache.All() {
-		// retrieves receipts from cached finalized blocks
+		// removes block identifier from cache
 		removed := e.blockIDsCache.Rem(blockID)
 		log := e.log.With().
 			Hex("block_id", logging.ID(blockID)).
@@ -563,23 +563,6 @@ func (e *Engine) checkPendingReceipts() {
 			Bool("removed", removed).
 			Msg("removes block id from cached block ids")
 
-		// retrieves all receipts that are pending for this block
-		receiptIDs, ok := e.pendingReceiptIDsByBlock.Get(blockID)
-		if !ok {
-			// no pending receipt for this block
-			log.Debug().Msg("no pending receipt for block")
-			continue
-		}
-		log.Debug().
-			Int("receipt_num", len(receiptIDs)).
-			Msg("retrieved receipt ids pending for block")
-
-		// removes list of receipt ids for this block
-		removed = e.pendingReceiptIDsByBlock.Rem(blockID)
-		log.Debug().
-			Bool("removed", removed).
-			Msg("removes all receipt ids pending for block")
-
 		// checks whether verification node is staked at snapshot of this block id/
 		ok, err := e.stakedAtBlockID(blockID)
 		if err != nil {
@@ -588,16 +571,21 @@ func (e *Engine) checkPendingReceipts() {
 				Msg("could verify stake of verification node for result")
 			continue
 		}
-
 		if !ok {
-			// node is not staked at block id
-			// discards all pending receipts for this block id.
-			e.discardReceiptsFromPending(receiptIDs, blockID)
+			e.log.Debug().Msg("unstaked node at this block")
 			continue
 		}
 
-		// moves receipts from pending to ready
-		e.pendingToReady(receiptIDs, blockID)
+		// extracts receipts from block
+		receipts, err := e.receipts(blockID)
+		if err != nil {
+			log.Debug().Err(err).Msg("could not extract receipts from finalized block")
+			continue
+		}
+
+		log.Debug().
+			Int("receipt_num", len(receipts)).
+			Msg("receipts retrieved successfully from finalized block")
 	}
 }
 
