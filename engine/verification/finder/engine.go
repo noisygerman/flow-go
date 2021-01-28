@@ -45,6 +45,7 @@ type Engine struct {
 	cachedReceipts           mempool.ReceiptDataPacks // used to keep incoming receipts before checking
 	pendingReceipts          mempool.ReceiptDataPacks // used to keep the receipts pending for a block as mempool
 	readyReceipts            mempool.ReceiptDataPacks // used to keep the receipts ready for process
+	blocks                   storage.Blocks           // used to extract receipts from finalized blocks
 	headerStorage            storage.Headers          // used to check block existence before verifying
 	processedResultIDs       mempool.Identifiers      // used to keep track of the processed results
 	discardedResultIDs       mempool.Identifiers      // used to keep track of discarded results while node was not staked for epoch
@@ -552,7 +553,7 @@ func (e *Engine) discardReceiptsFromPending(receiptIDs flow.IdentifierList, bloc
 // their corresponding receipt from pending to ready mempools.
 func (e *Engine) checkPendingReceipts() {
 	for _, blockID := range e.blockIDsCache.All() {
-		// removes blockID from new blocks mempool
+		// retrieves receipts from cached finalized blocks
 		removed := e.blockIDsCache.Rem(blockID)
 		log := e.log.With().
 			Hex("block_id", logging.ID(blockID)).
@@ -664,4 +665,14 @@ func (e *Engine) onTimer() {
 	}()
 
 	wg.Wait()
+}
+
+// receipts extracts and returns all ExecutionReceipts from finalized block.
+func (e Engine) receipts(blockID flow.Identifier) ([]*flow.ExecutionReceipt, error) {
+	block, err := e.blocks.ByID(blockID)
+	if err != nil {
+		return nil, fmt.Errorf("could not extract block from storage: %w", err)
+	}
+
+	return block.Payload.Receipts, nil
 }
