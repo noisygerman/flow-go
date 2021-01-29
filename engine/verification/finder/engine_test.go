@@ -145,13 +145,10 @@ func (suite *FinderEngineTestSuite) TestNewFinderEngine(opts ...func(testSuite *
 		suite.me,
 		suite.state,
 		suite.matchEng,
-		suite.cachedReceipts,
-		suite.pendingReceipts,
 		suite.readyReceipts,
 		suite.headerStorage,
 		suite.processedResultIDs,
 		suite.discardedResultIDs,
-		suite.receiptIDsByBlock,
 		suite.receiptIDsByResult,
 		suite.blockIDsCache,
 		suite.processInterval)
