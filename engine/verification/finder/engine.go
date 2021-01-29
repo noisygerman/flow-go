@@ -238,17 +238,8 @@ func (e *Engine) OnFinalizedBlock(block *model.Block) {
 // To implement FinalizationConsumer
 func (e *Engine) OnDoubleProposeDetected(*model.Block, *model.Block) {}
 
-// isProcessable returns true if the block for execution result is available in the storage
-// otherwise it returns false. In the current version, it checks solely against the block that
-// contains the collection guarantee.
-func (e *Engine) isProcessable(result *flow.ExecutionResult) bool {
-	// checks existence of block that result points to
-	_, err := e.headerStorage.ByBlockID(result.BlockID)
-	return err == nil
-}
-
 // stakedAtBlockID checks whether this instance of verification node has staked at specified block ID.
-// It returns true and nil if verification node has staked at specified block ID, and returns false, and nil otherwise.
+// It returns true an  nil if verification node has staked at specified block ID, and returns false, and nil otherwise.
 // It returns false and error if it could not extract the stake of (verification node) node at the specified block.
 func (e *Engine) stakedAtBlockID(blockID flow.Identifier) (bool, error) {
 	// extracts identity of verification node at block height of result
@@ -364,16 +355,11 @@ func (e *Engine) checkCachedBlocks() {
 // checkReadyReceipts iterates over receipts ready for process and processes them.
 func (e *Engine) checkReadyReceipts() {
 	for _, rdp := range e.readyReceipts.All() {
-		// NOTE: this anonymous function is solely for sake of encapsulating a block of code
-		// for tracing. To avoid closure, it should NOT encompass any goroutine involving rdp.
-		func() {
-			span, ctx := e.tracer.StartSpanFromContext(rdp.Ctx, trace.VERFindCheckReadyReceipts)
-			defer span.Finish()
-
+		e.tracer.WithSpanFromContext(rdp.Ctx, trace.VERFindCheckReadyReceipts, func() {
 			receiptID := rdp.Receipt.ID()
 			resultID := rdp.Receipt.ExecutionResult.ID()
 
-			ok, err := e.processResult(ctx, rdp.OriginID, &rdp.Receipt.ExecutionResult)
+			ok, err := e.processResult(rdp.Ctx, rdp.OriginID, &rdp.Receipt.ExecutionResult)
 			if err != nil {
 				e.log.Error().
 					Err(err).
@@ -389,13 +375,14 @@ func (e *Engine) checkReadyReceipts() {
 			}
 
 			// performs clean up
-			e.onResultProcessed(ctx, resultID)
+			e.onResultProcessed(rdp.Ctx, resultID)
 
 			e.log.Debug().
 				Hex("receipt_id", logging.ID(receiptID)).
 				Hex("result_id", logging.ID(resultID)).
 				Msg("result processed successfully")
-		}()
+		})
+
 	}
 }
 
