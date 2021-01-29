@@ -141,6 +141,7 @@ func (e *Engine) Process(originID flow.Identifier, event interface{}) error {
 
 // handleExecutionReceipt receives an execution receipt and adds it to the ready receipt mempool.
 func (e *Engine) handleExecutionReceipt(receipt *flow.ExecutionReceipt) {
+	// initiates tracer for receipt.
 	span, ok := e.tracer.GetSpan(receipt.ID(), trace.VERProcessExecutionReceipt)
 	ctx := context.Background()
 	if !ok {
@@ -149,68 +150,68 @@ func (e *Engine) handleExecutionReceipt(receipt *flow.ExecutionReceipt) {
 		defer span.Finish()
 	}
 	ctx = opentracing.ContextWithSpan(ctx, span)
-	childSpan, _ := e.tracer.StartSpanFromContext(ctx, trace.VERFindHandleExecutionReceipt)
-	defer childSpan.Finish()
 
-	receiptID := receipt.ID()
-	resultID := receipt.ExecutionResult.ID()
-	blockID := receipt.ExecutionResult.BlockID
+	e.tracer.WithSpanFromContext(ctx, trace.VERFindHandleExecutionReceipt, func() {
+		receiptID := receipt.ID()
+		resultID := receipt.ExecutionResult.ID()
+		blockID := receipt.ExecutionResult.BlockID
 
-	log := e.log.With().
-		Hex("block_id", logging.ID(blockID)).
-		Hex("receipt_id", logging.ID(receiptID)).
-		Hex("result_id", logging.ID(resultID)).Logger()
-	log.Info().
-		Msg("execution receipt arrived")
+		log := e.log.With().
+			Hex("block_id", logging.ID(blockID)).
+			Hex("receipt_id", logging.ID(receiptID)).
+			Hex("result_id", logging.ID(resultID)).Logger()
+		log.Info().
+			Msg("execution receipt arrived")
 
-	// monitoring: increases number of received execution receipts
-	e.metrics.OnExecutionReceiptReceived()
+		// monitoring: increases number of received execution receipts
+		e.metrics.OnExecutionReceiptReceived()
 
-	// checks if the result has already been processed or discarded
-	if e.processedResultIDs.Has(resultID) {
-		log.Debug().Msg("drops handling already processed result")
-		return
-	}
-	if e.discardedResultIDs.Has(resultID) {
-		log.Debug().Msg("drops handling already discarded result")
-		return
-	}
+		// checks if the result has already been processed or discarded
+		if e.processedResultIDs.Has(resultID) {
+			log.Debug().Msg("drops handling already processed result")
+			return
+		}
+		if e.discardedResultIDs.Has(resultID) {
+			log.Debug().Msg("drops handling already discarded result")
+			return
+		}
 
-	// checks whether verification node is staked at snapshot of this result's block.
-	ok, err := e.stakedAtBlockID(blockID)
-	if err != nil {
+		// checks whether verification node is staked at snapshot of this result's block.
+		ok, err := e.stakedAtBlockID(blockID)
+		if err != nil {
+			e.log.Debug().
+				Err(err).
+				Msg("unable to verify stake of node at block id of receipt")
+			return
+		}
+		if !ok {
+			discarded := e.discardedResultIDs.Add(resultID)
+			log.Debug().
+				Bool("added_to_discard_pool", discarded).
+				Msg("execution result marks discarded")
+			return
+		}
+
+		// adds receipt to ready mempool
+		receiptDataPack := &verification.ReceiptDataPack{
+			Receipt: receipt,
+			Ctx:     ctx,
+		}
+		added := e.readyReceipts.Add(receiptDataPack)
 		e.log.Debug().
-			Err(err).
-			Msg("unable to verify stake of node at block id of receipt")
-		return
-	}
-	if !ok {
-		discarded := e.discardedResultIDs.Add(resultID)
+			Bool("added", added).
+			Msg("adding receipt data pack to ready mempool")
+
+		err = e.receiptIDsByResult.Append(resultID, receiptID)
+		if err != nil {
+			e.log.Debug().
+				Err(err).
+				Msg("could not append receipt to receipt-ids-by-result mempool")
+		}
+
 		log.Debug().
-			Bool("added_to_discard_pool", discarded).
-			Msg("execution result marks discarded")
-		return
-	}
-
-	// adds receipt to ready mempool
-	receiptDataPack := &verification.ReceiptDataPack{
-		Receipt: receipt,
-		Ctx:     ctx,
-	}
-	added := e.readyReceipts.Add(receiptDataPack)
-	e.log.Debug().
-		Bool("added", added).
-		Msg("adding receipt data pack to ready mempool")
-
-	err = e.receiptIDsByResult.Append(resultID, receiptID)
-	if err != nil {
-		e.log.Debug().
-			Err(err).
-			Msg("could not append receipt to receipt-ids-by-result mempool")
-	}
-
-	log.Debug().
-		Msg("execution receipt successfully handled")
+			Msg("execution receipt successfully handled")
+	})
 }
 
 // To implement FinalizationConsumer
