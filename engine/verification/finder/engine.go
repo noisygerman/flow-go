@@ -618,21 +618,13 @@ func (e *Engine) checkReadyReceipts() {
 func (e *Engine) onTimer() {
 	wg := &sync.WaitGroup{}
 
-	wg.Add(3)
+	wg.Add(2)
 
-	// moves receipts from cache to either ready or pending mempools
-	go func() {
-		e.checkCachedReceipts()
-		wg.Done()
-	}()
-
-	// moves pending receipt to ready mempool
 	go func() {
 		e.checkCachedBlocks()
 		wg.Done()
 	}()
 
-	// processes ready receipts
 	go func() {
 		e.checkReadyReceipts()
 		wg.Done()
