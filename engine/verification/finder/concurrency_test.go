@@ -276,15 +276,10 @@ func (suite *ConcurrencyTestSuite) testConcurrency(receiptCount, senderCount, ch
 
 	// evaluates proper resource cleanup
 	//
-	// no execution receipt should reside in cached, pending, or ready mempools of finder engine
-	require.True(suite.T(), verNode.CachedReceipts.Size() == 0)
-	require.True(suite.T(), verNode.PendingReceipts.Size() == 0)
+	// no execution receipt should reside ready mempool
 	require.True(suite.T(), verNode.ReadyReceipts.Size() == 0)
-
-	// no execution receipt should be pending for a block, and no block should remain cached.
-	require.True(suite.T(), verNode.PendingReceiptIDsByBlock.Size() == 0)
 	require.True(suite.T(), verNode.ReceiptIDsByResult.Size() == 0)
-	require.True(suite.T(), verNode.CachedReceipts.Size() == 0)
+	// no block should remain in cache
 	require.True(suite.T(), verNode.BlockIDsCache.Size() == 0)
 
 	if staked {
