@@ -592,23 +592,6 @@ func VerificationNode(t testing.TB,
 		node.GenericNode = &gn
 	}
 
-	if node.CachedReceipts == nil {
-		node.CachedReceipts, err = stdmap.NewReceiptDataPacks(receiptsLimit)
-		require.Nil(t, err)
-		// registers size method of backend for metrics
-		err = mempoolCollector.Register(metrics.ResourceCachedReceipt, node.CachedReceipts.Size)
-		require.Nil(t, err)
-	}
-
-	if node.PendingReceipts == nil {
-		node.PendingReceipts, err = stdmap.NewReceiptDataPacks(receiptsLimit)
-		require.Nil(t, err)
-
-		// registers size method of backend for metrics
-		err = mempoolCollector.Register(metrics.ResourcePendingReceipt, node.PendingReceipts.Size)
-		require.Nil(t, err)
-	}
-
 	if node.ReadyReceipts == nil {
 		node.ReadyReceipts, err = stdmap.NewReceiptDataPacks(receiptsLimit)
 		require.Nil(t, err)
@@ -662,15 +645,6 @@ func VerificationNode(t testing.TB,
 
 		// registers size method of backend for metrics
 		err = mempoolCollector.Register(metrics.ResourceCachedBlockID, node.BlockIDsCache.Size)
-		require.Nil(t, err)
-	}
-
-	if node.PendingReceiptIDsByBlock == nil {
-		node.PendingReceiptIDsByBlock, err = stdmap.NewIdentifierMap(receiptsLimit)
-		require.Nil(t, err)
-
-		// registers size method of backend for metrics
-		err = mempoolCollector.Register(metrics.ResourcePendingReceiptIDsByBlock, node.PendingReceiptIDsByBlock.Size)
 		require.Nil(t, err)
 	}
 
@@ -746,13 +720,10 @@ func VerificationNode(t testing.TB,
 			node.Me,
 			node.State,
 			node.MatchEngine,
-			node.CachedReceipts,
-			node.PendingReceipts,
 			node.ReadyReceipts,
 			node.Headers,
 			node.ProcessedResultIDs,
 			node.DiscardedResultIDs,
-			node.PendingReceiptIDsByBlock,
 			node.ReceiptIDsByResult,
 			node.BlockIDsCache,
 			processInterval)
