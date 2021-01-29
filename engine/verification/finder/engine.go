@@ -208,9 +208,9 @@ func (e *Engine) handleExecutionReceipt(receipt *flow.ExecutionReceipt) {
 	}
 	if !ok {
 		discarded := e.discardedResultIDs.Add(resultID)
-		e.log.Debug().
-			Bool("discarded", discarded).
-			Msg("unstaked node at this block id, discarding receipt")
+		log.Debug().
+			Bool("added_to_discard_pool", discarded).
+			Msg("execution result marks discarded")
 		return
 	}
 
@@ -228,7 +228,7 @@ func (e *Engine) handleExecutionReceipt(receipt *flow.ExecutionReceipt) {
 	if err != nil {
 		e.log.Debug().
 			Err(err).
-			Msg("could not add receipt id to receipt-id-by-result mempool")
+			Msg("could not append receipt to receipt-ids-by-result mempool")
 	}
 
 	log.Debug().
@@ -414,35 +414,6 @@ func (e *Engine) checkCachedReceipts() {
 				Msg("cached receipt checked for adding to ready mempool")
 		}()
 	}
-}
-
-// addToPending encapsulates the logic around adding a ReceiptDataPack to pending receipts mempool.
-//
-// When no errors occurred, the first return value indicates
-// whether or not the receipt has been added to the pending mempool.
-func (e *Engine) addToPending(receiptDataPack *verification.ReceiptDataPack) (bool, error) {
-	receiptID := receiptDataPack.Receipt.ID()
-	resultID := receiptDataPack.Receipt.ExecutionResult.ID()
-	blockID := receiptDataPack.Receipt.ExecutionResult.BlockID
-
-	ok := e.pendingReceipts.Add(receiptDataPack)
-	if !ok {
-		return false, nil
-	}
-
-	// marks receipt pending for its block ID
-	err := e.pendingReceiptIDsByBlock.Append(blockID, receiptID)
-	if err != nil {
-		return false, fmt.Errorf("could not append receipt to receipt-ids-by-block mempool: %w", err)
-	}
-
-	// records the execution receipt id based on its result id
-	err = e.receiptIDsByResult.Append(resultID, receiptID)
-	if err != nil {
-		return false, fmt.Errorf("could not append receipt to receipt-ids-by-result mempool: %w", err)
-	}
-
-	return true, nil
 }
 
 // pendingToReady receives a list of receipt identifiers and moves all their corresponding receipts
