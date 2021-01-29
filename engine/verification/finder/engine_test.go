@@ -11,7 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 
-	"github.com/onflow/flow-go/engine"
 	"github.com/onflow/flow-go/engine/verification/finder"
 	"github.com/onflow/flow-go/engine/verification/utils"
 	"github.com/onflow/flow-go/model/flow"
@@ -29,7 +28,6 @@ import (
 // FinderEngineTestSuite contains the unit tests of Finder engine.
 type FinderEngineTestSuite struct {
 	suite.Suite
-	net      *module.Network
 	me       *module.Local
 	state    *protocol.State
 	snapshot *protocol.Snapshot
@@ -81,7 +79,6 @@ func TestFinderEngine(t *testing.T) {
 // SetupTest initiates the test setups prior to each test.
 func (suite *FinderEngineTestSuite) SetupTest() {
 	suite.receiptsConduit = &mocknetwork.Conduit{}
-	suite.net = &module.Network{}
 	suite.me = &module.Local{}
 	suite.state = &protocol.State{}
 	suite.snapshot = &protocol.Snapshot{}
@@ -117,11 +114,6 @@ func (suite *FinderEngineTestSuite) SetupTest() {
 	suite.processInterval = 1 * time.Second
 	// allows 5 process interval cycle before timeouting a call
 	suite.assertTimeOut = 5 * suite.processInterval
-
-	// mocking the network registration of the engine
-	suite.net.On("Register", engine.ReceiveReceipts, testifymock.Anything).
-		Return(suite.receiptsConduit, nil).
-		Once()
 }
 
 func WithIdentity(identity *flow.Identity) func(*FinderEngineTestSuite) {
@@ -141,7 +133,6 @@ func (suite *FinderEngineTestSuite) TestNewFinderEngine(opts ...func(testSuite *
 	e, err := finder.New(zerolog.Logger{},
 		suite.metrics,
 		suite.tracer,
-		suite.net,
 		suite.me,
 		suite.state,
 		suite.matchEng,
@@ -156,9 +147,6 @@ func (suite *FinderEngineTestSuite) TestNewFinderEngine(opts ...func(testSuite *
 
 	// mocks identity of the verification node
 	suite.me.On("NodeID").Return(suite.verIdentity.NodeID)
-
-	suite.net.AssertExpectations(suite.T())
-
 	return e
 }
 
