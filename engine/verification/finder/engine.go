@@ -36,24 +36,23 @@ import (
 // This engine ensures that each (ready) result is passed to match engine only once.
 // Hence, among concurrent ready receipts with shared result, only one instance of result is passed to match engine.
 type Engine struct {
-	unit                     *engine.Unit
-	log                      zerolog.Logger
-	metrics                  module.VerificationMetrics
-	me                       module.Local
-	match                    network.Engine
-	state                    protocol.State
-	cachedReceipts           mempool.ReceiptDataPacks // used to keep incoming receipts before checking
-	pendingReceipts          mempool.ReceiptDataPacks // used to keep the receipts pending for a block as mempool
-	readyReceipts            mempool.ReceiptDataPacks // used to keep the receipts ready for process
-	blocks                   storage.Blocks           // used to extract receipts from finalized blocks
-	headerStorage            storage.Headers          // used to check block existence before verifying
-	processedResultIDs       mempool.Identifiers      // used to keep track of the processed results
-	discardedResultIDs       mempool.Identifiers      // used to keep track of discarded results while node was not staked for epoch
-	blockIDsCache            mempool.Identifiers      // used as a cache to keep track of new finalized blocks
-	pendingReceiptIDsByBlock mempool.IdentifierMap    // used as a mapping to keep track of receipts associated with a block
-	receiptIDsByResult       mempool.IdentifierMap    // used as a mapping to keep track of receipts with the same result
-	processInterval          time.Duration            // used to define intervals at which engine moves receipts through pipeline
-	tracer                   module.Tracer
+	unit               *engine.Unit
+	log                zerolog.Logger
+	metrics            module.VerificationMetrics
+	me                 module.Local
+	match              network.Engine
+	state              protocol.State
+	cachedReceipts     mempool.ReceiptDataPacks // used to keep incoming receipts before checking
+	pendingReceipts    mempool.ReceiptDataPacks // used to keep the receipts pending for a block as mempool
+	readyReceipts      mempool.ReceiptDataPacks // used to keep the receipts ready for process
+	blocks             storage.Blocks           // used to extract receipts from finalized blocks
+	headerStorage      storage.Headers          // used to check block existence before verifying
+	processedResultIDs mempool.Identifiers      // used to keep track of the processed results
+	discardedResultIDs mempool.Identifiers      // used to keep track of discarded results while node was not staked for epoch
+	blockIDsCache      mempool.Identifiers      // used as a cache to keep track of new finalized blocks
+	receiptIDsByResult mempool.IdentifierMap    // used as a mapping to keep track of receipts with the same result
+	processInterval    time.Duration            // used to define intervals at which engine moves receipts through pipeline
+	tracer             module.Tracer
 }
 
 func New(
@@ -172,8 +171,8 @@ func (e *Engine) process(originID flow.Identifier, event interface{}) error {
 	return nil
 }
 
-// addToReady receives an execution receipt and adds it to the ready receipt mempool.
-func (e *Engine) addToReady(receipt *flow.ExecutionReceipt) {
+// handleExecutionReceipt receives an execution receipt and adds it to the ready receipt mempool.
+func (e *Engine) handleExecutionReceipt(receipt *flow.ExecutionReceipt) {
 	span, ok := e.tracer.GetSpan(receipt.ID(), trace.VERProcessExecutionReceipt)
 	ctx := context.Background()
 	if !ok {
@@ -187,9 +186,10 @@ func (e *Engine) addToReady(receipt *flow.ExecutionReceipt) {
 
 	receiptID := receipt.ID()
 	resultID := receipt.ExecutionResult.ID()
+	blockID := receipt.ExecutionResult.BlockID
 
 	log := e.log.With().
-		Hex("origin_id", logging.ID(originID)).
+		Hex("block_id", logging.ID(blockID)).
 		Hex("receipt_id", logging.ID(receiptID)).
 		Hex("result_id", logging.ID(resultID)).Logger()
 	log.Info().
@@ -198,21 +198,41 @@ func (e *Engine) addToReady(receipt *flow.ExecutionReceipt) {
 	// monitoring: increases number of received execution receipts
 	e.metrics.OnExecutionReceiptReceived()
 
-	// caches receipt as a receipt data pack for further processing
-	rdp := &verification.ReceiptDataPack{
-		Receipt:  receipt,
-		OriginID: originID,
-		Ctx:      ctx,
+	// checks whether verification node is staked at snapshot of this result's block.
+	ok, err := e.stakedAtBlockID(blockID)
+	if err != nil {
+		e.log.Debug().
+			Err(err).
+			Msg("unable to verify stake of node at block id of receipt")
+		return
+	}
+	if !ok {
+		discarded := e.discardedResultIDs.Add(resultID)
+		e.log.Debug().
+			Bool("discarded", discarded).
+			Msg("unstaked node at this block id, discarding receipt")
+		return
 	}
 
-	ok = e.cachedReceipts.Add(rdp)
-	if !ok {
-		return fmt.Errorf("duplicate execution receipt. receipt_id: %x", logging.ID(receiptID))
+	// adds receipt to ready mempool
+	receiptDataPack := &verification.ReceiptDataPack{
+		Receipt: receipt,
+		Ctx:     ctx,
 	}
+	added := e.readyReceipts.Add(receiptDataPack)
+	e.log.Debug().
+		Bool("added", added).
+		Msg("adding receipt data pack to ready mempool")
+
+	err = e.receiptIDsByResult.Append(resultID, receiptID)
+	if err != nil {
+		e.log.Debug().
+			Err(err).
+			Msg("could not add receipt id to receipt-id-by-result mempool")
+	}
+
 	log.Debug().
 		Msg("execution receipt successfully handled")
-
-	return nil
 }
 
 // To implement FinalizationConsumer
@@ -396,43 +416,6 @@ func (e *Engine) checkCachedReceipts() {
 	}
 }
 
-// addToReady encapsulates the logic around adding a ReceiptDataPack to ready receipts mempool.
-// The ReceiptDataPack is however discarded it if finder engine is not staked at its block id.
-//
-// When no errors occurred, the first return value indicates
-// whether or not the receipt has been added to the ready mempool, and the second return value indicates
-// whether or not the receipt has been discarded due to the node being unstaked at the receipt block ID.
-func (e *Engine) addToReady(receiptDataPack *verification.ReceiptDataPack) (bool, bool, error) {
-	receiptID := receiptDataPack.Receipt.ID()
-	resultID := receiptDataPack.Receipt.ExecutionResult.ID()
-	blockID := receiptDataPack.Receipt.ExecutionResult.BlockID
-
-	// checks whether verification node is staked at snapshot of this result's block.
-	ok, err := e.stakedAtBlockID(blockID)
-	if err != nil {
-		return false, false, fmt.Errorf("could not verify stake of verification node for result: %w", err)
-	}
-
-	if !ok {
-		discarded := e.discardedResultIDs.Add(resultID)
-		return false, discarded, nil
-	}
-
-	// adds the receipt to the ready mempool
-	ok = e.readyReceipts.Add(receiptDataPack)
-	if !ok {
-		return false, false, nil
-	}
-
-	// records the execution receipt id based on its result id
-	err = e.receiptIDsByResult.Append(resultID, receiptID)
-	if err != nil {
-		return false, false, nil
-	}
-
-	return true, false, nil
-}
-
 // addToPending encapsulates the logic around adding a ReceiptDataPack to pending receipts mempool.
 //
 // When no errors occurred, the first return value indicates
@@ -534,8 +517,7 @@ func (e *Engine) discardReceipts(receipts []*flow.ExecutionReceipt, blockID flow
 	}
 }
 
-// checkReceipts iterates over the new cached finalized blocks. It moves
-// their corresponding receipt from pending to ready mempools.
+// checkCachedBlocks iterates over the new cached finalized blocks, and handles their included execution receipts.
 func (e *Engine) checkCachedBlocks() {
 	for _, blockID := range e.blockIDsCache.All() {
 		// removes block identifier from cache
@@ -559,18 +541,8 @@ func (e *Engine) checkCachedBlocks() {
 			Int("receipt_num", len(receipts)).
 			Msg("receipts retrieved successfully from finalized block")
 
-		// checks whether verification node is staked at snapshot of this block id/
-		ok, err := e.stakedAtBlockID(blockID)
-		if err != nil {
-			e.log.Debug().
-				Err(err).
-				Msg("could verify stake of verification node for result")
-			continue
-		}
-		if !ok {
-			e.log.Debug().Msg("unstaked node at this block")
-			e.discardReceipts(receipts)
-			continue
+		for _, receipt := range receipts {
+			e.handleExecutionReceipt(receipt)
 		}
 	}
 }
