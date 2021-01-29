@@ -69,29 +69,27 @@ func New(
 	headerStorage storage.Headers,
 	processedResultIDs mempool.Identifiers,
 	discardedResultIDs mempool.Identifiers,
-	pendingReceiptIDsByBlock mempool.IdentifierMap,
 	receiptsIDsByResult mempool.IdentifierMap,
 	blockIDsCache mempool.Identifiers,
 	processInterval time.Duration,
 ) (*Engine, error) {
 	e := &Engine{
-		unit:                     engine.NewUnit(),
-		log:                      log.With().Str("engine", "finder").Logger(),
-		metrics:                  metrics,
-		me:                       me,
-		state:                    state,
-		match:                    match,
-		headerStorage:            headerStorage,
-		cachedReceipts:           cachedReceipts,
-		pendingReceipts:          pendingReceipts,
-		readyReceipts:            readyReceipts,
-		processedResultIDs:       processedResultIDs,
-		discardedResultIDs:       discardedResultIDs,
-		pendingReceiptIDsByBlock: pendingReceiptIDsByBlock,
-		receiptIDsByResult:       receiptsIDsByResult,
-		blockIDsCache:            blockIDsCache,
-		processInterval:          processInterval,
-		tracer:                   tracer,
+		unit:               engine.NewUnit(),
+		log:                log.With().Str("engine", "finder").Logger(),
+		metrics:            metrics,
+		me:                 me,
+		state:              state,
+		match:              match,
+		headerStorage:      headerStorage,
+		cachedReceipts:     cachedReceipts,
+		pendingReceipts:    pendingReceipts,
+		readyReceipts:      readyReceipts,
+		processedResultIDs: processedResultIDs,
+		discardedResultIDs: discardedResultIDs,
+		receiptIDsByResult: receiptsIDsByResult,
+		blockIDsCache:      blockIDsCache,
+		processInterval:    processInterval,
+		tracer:             tracer,
 	}
 
 	_, err := net.Register(engine.ReceiveReceipts, e)
@@ -139,36 +137,12 @@ func (e *Engine) ProcessLocal(event interface{}) error {
 }
 
 // Process processes the given event from the node with the given origin ID in
-// a blocking manner. It returns the potential processing error when done.
+// a blocking manner. The current version of finder engine does not expect receiving any event from
+// networking layer. Hence, Process method returns an error upon invocation.
 func (e *Engine) Process(originID flow.Identifier, event interface{}) error {
 	return e.unit.Do(func() error {
-		return e.process(originID, event)
+		return fmt.Errorf("finder engine does not expect events through process")
 	})
-}
-
-// process receives and submits an event to the finder engine for processing.
-// It returns an error so the finder engine will not propagate an event unless
-// it is successfully processed by the engine.
-// The origin ID indicates the node which originally submitted the event to
-// the peer-to-peer network.
-func (e *Engine) process(originID flow.Identifier, event interface{}) error {
-	var err error
-
-	switch resource := event.(type) {
-	case *flow.ExecutionReceipt:
-		err = e.handleExecutionReceipt(originID, resource)
-	default:
-		return fmt.Errorf("invalid event type (%T)", event)
-	}
-
-	if err != nil {
-		// logs the error instead of returning that.
-		// returning error would be projected at a higher level by network layer.
-		// however, this is an engine-level error, and not network layer error.
-		e.log.Debug().Err(err).Msg("engine could not process event successfully")
-	}
-
-	return nil
 }
 
 // handleExecutionReceipt receives an execution receipt and adds it to the ready receipt mempool.
