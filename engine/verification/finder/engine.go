@@ -57,7 +57,6 @@ func New(
 	log zerolog.Logger,
 	metrics module.VerificationMetrics,
 	tracer module.Tracer,
-	net module.Network,
 	me module.Local,
 	state protocol.State,
 	match network.Engine,
@@ -86,10 +85,6 @@ func New(
 		tracer:             tracer,
 	}
 
-	_, err := net.Register(engine.ReceiveReceipts, e)
-	if err != nil {
-		return nil, fmt.Errorf("could not register engine on execution receipt provider channel: %w", err)
-	}
 	return e, nil
 }
 
