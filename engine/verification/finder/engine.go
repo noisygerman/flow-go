@@ -458,36 +458,6 @@ func (e *Engine) pendingToReady(receiptIDs flow.IdentifierList, blockID flow.Ide
 	}
 }
 
-// discardReceipts receives a list of receipts, and  marks their execution result as discarded.
-// blockID is the block identifier that all receipts are pointing to.
-//
-// Finder engine discards a receipt if it is not staked at block id of that receipt.
-func (e *Engine) discardReceipts(receipts []*flow.ExecutionReceipt, blockID flow.Identifier) {
-	for _, receipt := range receipts {
-		receiptID := receipt.ID()
-		resultID := receipt.ExecutionResult.ID()
-		log := e.log.With().
-			Hex("block_id", logging.ID(blockID)).
-			Hex("receipt_id", logging.ID(receiptID)).
-			Hex("result_id", logging.ID(resultID)).
-			Logger()
-
-		// NOTE: this anonymous function is solely for sake of encapsulating a block of code
-		// for opentracing. To avoid closure, it should NOT encompass any goroutine involving rdp.
-		func() {
-			//var span opentracing.Span
-			//span, _ = e.tracer.StartSpanFromContext(rdp.Ctx, trace.VERFindCheckPendingReceipts)
-			//defer span.Finish()
-
-			// marks result id of receipt as discarded.
-			added := e.discardedResultIDs.Add(resultID)
-			log.Debug().
-				Bool("added_to_discard_pool", added).
-				Msg("execution result marks discarded")
-		}()
-	}
-}
-
 // checkCachedBlocks iterates over the new cached finalized blocks, and handles their included execution receipts.
 func (e *Engine) checkCachedBlocks() {
 	for _, blockID := range e.blockIDsCache.All() {
