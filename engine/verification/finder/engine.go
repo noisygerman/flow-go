@@ -256,31 +256,37 @@ func (e *Engine) stakedAtBlockID(blockID flow.Identifier) (bool, error) {
 // Otherwise, it returns false, and error if the result is not going successfully to the match engine. It returns false,
 // and nil, if the result has already been processed.
 func (e *Engine) processResult(ctx context.Context, originID flow.Identifier, result *flow.ExecutionResult) (bool, error) {
-	span, _ := e.tracer.StartSpanFromContext(ctx, trace.VERFindProcessResult)
-	defer span.Finish()
+	var err error = nil
+	processed := false
 
-	resultID := result.ID()
-	log := e.log.With().Hex("result_id", logging.ID(resultID)).Logger()
-	if e.processedResultIDs.Has(resultID) {
-		log.Debug().Msg("result already processed")
-		return false, nil
-	}
-	if e.discardedResultIDs.Has(resultID) {
-		e.log.Debug().Msg("drops handling already discarded result")
-		return false, nil
-	}
+	e.tracer.WithSpanFromContext(ctx, trace.VERFindProcessResult, func() {
+		resultID := result.ID()
+		log := e.log.With().Hex("result_id", logging.ID(resultID)).Logger()
 
-	err := e.match.Process(originID, result)
-	if err != nil {
-		return false, fmt.Errorf("submission error to match engine: %w", err)
-	}
+		if e.processedResultIDs.Has(resultID) {
+			log.Debug().Msg("drops processing already processed result")
+			return
+		}
 
-	log.Info().Msg("result submitted to match engine")
+		if e.discardedResultIDs.Has(resultID) {
+			e.log.Debug().Msg("drops processing already discarded result")
+			return
+		}
 
-	// monitoring: increases number of execution results sent
-	e.metrics.OnExecutionResultSent()
+		err = e.match.Process(originID, result)
+		if err != nil {
+			err = fmt.Errorf("could not submit result to match engine: %w", err)
+			return
+		}
 
-	return true, nil
+		log.Info().Msg("result submitted to match engine")
+
+		// monitoring: increases number of execution results sent
+		e.metrics.OnExecutionResultSent()
+		processed = true
+	})
+
+	return processed, err
 }
 
 // onResultProcessed is called whenever a result is processed completely and
