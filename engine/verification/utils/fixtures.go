@@ -25,12 +25,11 @@ import (
 )
 
 // CompleteExecutionResult represents an execution result that is ready to
-// be verified. It contains all execution result and all resources required to
-// verify it.
-// TODO update this as needed based on execution requirements
+// be verified.
+//
 type CompleteExecutionResult struct {
-	Receipt        *flow.ExecutionReceipt
-	Block          *flow.Block
+	ContainerBlock *flow.Block // block that contains execution receipt of reference block
+	ReferenceBlock *flow.Block // block that execution receipt refers to
 	Collections    []*flow.Collection
 	ChunkDataPacks []*flow.ChunkDataPack
 	SpockSecrets   [][]byte
@@ -157,7 +156,7 @@ func CompleteExecutionResultFixture(t *testing.T, chunkCount int, chain flow.Cha
 
 	return CompleteExecutionResult{
 		Receipt:        &receipt,
-		Block:          &block,
+		ReferenceBlock: &block,
 		Collections:    collections,
 		ChunkDataPacks: chunkDataPacks,
 		SpockSecrets:   spockSecrets,
@@ -225,9 +224,12 @@ func LightExecutionResultFixture(chunkCount int) CompleteExecutionResult {
 		ExecutionResult: result,
 	}
 
+	containerBlock := unittest.BlockWithParentFixture(block.Header)
+	containerBlock.Payload.Receipts = []*flow.ExecutionReceipt{}
+
 	return CompleteExecutionResult{
 		Receipt:        &receipt,
-		Block:          &block,
+		ReferenceBlock: &block,
 		Collections:    collections,
 		ChunkDataPacks: chunkDataPacks,
 	}
