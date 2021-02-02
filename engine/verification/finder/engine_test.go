@@ -99,8 +99,8 @@ func (suite *FinderEngineTestSuite) SetupTest() {
 	completeER := utils.LightExecutionResultFixture(1)
 	suite.collection = completeER.Collections[0]
 	suite.block = completeER.ReferenceBlock
-	suite.receipt = completeER.Receipt
-	suite.chunk = completeER.Receipt.ExecutionResult.Chunks[0]
+	suite.receipt = completeER.ContainerBlock.Payload.Receipts[0]
+	suite.chunk = suite.receipt.ExecutionResult.Chunks[0]
 	suite.chunkDataPack = completeER.ChunkDataPacks[0]
 
 	suite.verIdentity = unittest.IdentityFixture(unittest.WithRole(flow.RoleVerification))
