@@ -37,7 +37,7 @@ type FinderEngineTestSuite struct {
 	metrics         *module.VerificationMetrics
 	tracer          realModule.Tracer
 
-	// mock mempools
+	// mock mempools and storage
 	cachedReceipts     *mempool.ReceiptDataPacks
 	pendingReceipts    *mempool.ReceiptDataPacks
 	readyReceipts      *mempool.ReceiptDataPacks
@@ -46,7 +46,7 @@ type FinderEngineTestSuite struct {
 	blockIDsCache      *mempool.Identifiers
 	receiptIDsByBlock  *mempool.IdentifierMap
 	receiptIDsByResult *mempool.IdentifierMap
-	headerStorage      *storage.Headers
+	blocks             *storage.Blocks
 
 	// resources fixtures
 	collection      *flow.Collection
@@ -84,7 +84,7 @@ func (suite *FinderEngineTestSuite) SetupTest() {
 	suite.snapshot = &protocol.Snapshot{}
 	suite.metrics = &module.VerificationMetrics{}
 	suite.tracer = trace.NewNoopTracer()
-	suite.headerStorage = &storage.Headers{}
+	suite.blocks = &storage.Blocks{}
 	suite.cachedReceipts = &mempool.ReceiptDataPacks{}
 	suite.pendingReceipts = &mempool.ReceiptDataPacks{}
 	suite.readyReceipts = &mempool.ReceiptDataPacks{}
@@ -137,7 +137,7 @@ func (suite *FinderEngineTestSuite) TestNewFinderEngine(opts ...func(testSuite *
 		suite.state,
 		suite.matchEng,
 		suite.readyReceipts,
-		suite.headerStorage,
+		suite.blocks,
 		suite.processedResultIDs,
 		suite.discardedResultIDs,
 		suite.receiptIDsByResult,
@@ -221,7 +221,7 @@ func (suite *FinderEngineTestSuite) TestCachedToPending() {
 		Return(false).Once()
 
 	// mocks block associated with receipt is not available
-	suite.headerStorage.On("ByBlockID", suite.block.ID()).
+	suite.blocks.On("ByBlockID", suite.block.ID()).
 		Return(nil, fmt.Errorf("block does not exist")).Once()
 
 	// mocks adding receipt id to mapping mempool based on its result
@@ -293,7 +293,7 @@ func (suite *FinderEngineTestSuite) TestCachedToReady_Staked() {
 		Return(false).Once()
 
 	// mocks block associated with receipt is available
-	suite.headerStorage.On("ByBlockID", suite.block.ID()).
+	suite.blocks.On("ByBlockID", suite.block.ID()).
 		Return(suite.block.Header, nil).Once()
 
 	// mocks adding receipt id to mapping mempool based on its result
@@ -368,7 +368,7 @@ func (suite *FinderEngineTestSuite) TestCachedToReady_Unstaked() {
 		Return(false).Once()
 
 	// mocks block associated with receipt is available
-	suite.headerStorage.On("ByBlockID", suite.block.ID()).
+	suite.blocks.On("ByBlockID", suite.block.ID()).
 		Return(suite.block.Header, nil).Once()
 
 	// mocks returning state snapshot of system at block height of result
@@ -546,7 +546,7 @@ func (suite *FinderEngineTestSuite) TestProcessReady_HappyPath() {
 		suite.processedResultIDs,
 		suite.metrics,
 		suite.receiptIDsByResult,
-		suite.headerStorage,
+		suite.blocks,
 		suite.matchEng)
 }
 
@@ -637,7 +637,7 @@ func (suite *FinderEngineTestSuite) TestHandleReceipt_DuplicateReady() {
 		Return(false).Once()
 
 	// mocks block associated with receipt is available
-	suite.headerStorage.On("ByBlockID", suite.block.ID()).
+	suite.blocks.On("ByBlockID", suite.block.ID()).
 		Return(&flow.Header{}, nil).Once()
 
 	// mocks returning state snapshot of system at block height of result
@@ -671,7 +671,7 @@ func (suite *FinderEngineTestSuite) TestHandleReceipt_DuplicateReady() {
 		suite.readyReceipts,
 		suite.processedResultIDs,
 		suite.matchEng,
-		suite.headerStorage)
+		suite.blocks)
 }
 
 // TestHandleReceipt_DuplicatePending evaluates that trying to move a duplicate receipt from cached to
@@ -701,7 +701,7 @@ func (suite *FinderEngineTestSuite) TestHandleReceipt_DuplicatePending() {
 		Return(false).Once()
 
 	// mocks block associated with receipt is not available
-	suite.headerStorage.On("ByBlockID", suite.block.ID()).
+	suite.blocks.On("ByBlockID", suite.block.ID()).
 		Return(nil, fmt.Errorf("no block")).Once()
 
 	// mocks adding receipt to the pending receipts mempool returns a false result
@@ -731,27 +731,19 @@ func (suite *FinderEngineTestSuite) TestHandleReceipt_DuplicatePending() {
 		suite.readyReceipts,
 		suite.processedResultIDs,
 		suite.matchEng,
-		suite.headerStorage)
+		suite.blocks)
 }
 
-// TestHandleReceipt_Processed evaluates that checking a cached receipt with a processed result
-// is dropped without attempting to add it to any of ready and pending mempools
+// TestHandleReceipt_Processed evaluates that receipts containing already processed results
+// are not added to ready mempool.
 func (suite *FinderEngineTestSuite) TestHandleReceipt_Processed() {
 	e := suite.TestNewFinderEngine()
 
-	// mocks no new finalized block
-	suite.blockIDsCache.On("All").
-		Return(flow.IdentifierList{})
-
-	// mocks no new ready receipt
-	suite.readyReceipts.On("All").
-		Return([]*verification.ReceiptDataPack{})
-
-	// mocks a receipt in cache
-	suite.cachedReceipts.On("All").
-		Return([]*verification.ReceiptDataPack{suite.receiptDataPack})
-	suite.cachedReceipts.On("Rem", suite.receiptDataPack.ID()).
-		Return(true)
+	//
+	suite.blockIDsCache.On("All").Return(flow.IdentifierList{suite.block.ID()})
+	suite.blockIDsCache.On("Rem", suite.block.ID()).Return(true)
+	suite.blocks
+	suite.readyReceipts.On("All").Return([]*verification.ReceiptDataPack{})
 
 	// mocks result has already been processed
 	moveWG := sync.WaitGroup{}
@@ -783,11 +775,10 @@ func (suite *FinderEngineTestSuite) TestHandleReceipt_Processed() {
 		suite.readyReceipts,
 		suite.processedResultIDs,
 		suite.matchEng,
-		suite.headerStorage)
+		suite.blocks)
 }
 
-// TestHandleReceipt_Discarded evaluates that checking a cached receipt with a discarded result
-// is dropped without attempting to add it to any of ready and pending mempools.
+// TestHandleReceipt_Discarded evaluates that
 func (suite *FinderEngineTestSuite) TestHandleReceipt_Discarded() {
 	e := suite.TestNewFinderEngine()
 
@@ -838,5 +829,5 @@ func (suite *FinderEngineTestSuite) TestHandleReceipt_Discarded() {
 		suite.readyReceipts,
 		suite.processedResultIDs,
 		suite.matchEng,
-		suite.headerStorage)
+		suite.blocks)
 }
