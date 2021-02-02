@@ -167,7 +167,11 @@ func CompleteExecutionResultFixture(t *testing.T, chunkCount int, chain flow.Cha
 // LightExecutionResultFixture returns a light mocked version of execution result with an
 // execution receipt referencing the block/collections. In the light version of execution result,
 // everything is wired properly, but with the minimum viable content provided. This version is basically used
-// for profiling.
+// for profiling and light test that does not involve block execution.
+//
+// The CompleteExecutionResult returned contains two blocks: reference block and container block.
+// The reference block is the block that execution result points to its id.
+// The container block is the block that contains the execution receipt (of reference block).
 func LightExecutionResultFixture(chunkCount int) CompleteExecutionResult {
 	collections := make([]*flow.Collection, 0, chunkCount)
 	guarantees := make([]*flow.CollectionGuarantee, 0, chunkCount)
@@ -225,6 +229,8 @@ func LightExecutionResultFixture(chunkCount int) CompleteExecutionResult {
 		ExecutionResult: result,
 	}
 
+	// container block contains the execution receipt and points back to reference block
+	// as its parent.
 	containerBlock := unittest.BlockWithParentFixture(referenceBlock.Header)
 	containerBlock.Payload.Receipts = []*flow.ExecutionReceipt{receipt}
 
