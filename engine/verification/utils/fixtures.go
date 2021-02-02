@@ -40,8 +40,12 @@ type CompleteExecutionResult struct {
 // chunkCount determines the number of chunks inside each receipt.
 // The output is an execution result with `chunkCount`+1 chunks, where the last chunk accounts
 // for the system chunk.
+//
+// The CompleteExecutionResult returned contains two blocks: reference block and container block.
+// The reference block is the block that execution result points to its id.
+// The container block is the block that contains the execution receipt (of reference block).
 func CompleteExecutionResultFixture(t *testing.T, chunkCount int, chain flow.Chain, root *flow.Header) CompleteExecutionResult {
-	// setups up the first collection of block consists of three transactions
+	// setups up the first collection of referenceBlock consists of three transactions
 	tx1 := testutil.DeployCounterContractTransaction(chain.ServiceAddress(), chain)
 	err := testutil.SignTransactionAsServiceAccount(tx1, 0, chain)
 	require.NoError(t, err)
@@ -108,7 +112,7 @@ func CompleteExecutionResultFixture(t *testing.T, chunkCount int, chain flow.Cha
 			guarantees = append(guarantees, guarantee)
 		}
 
-		// generates system chunk collection and guarantee as the last collection of the block
+		// generates system chunk collection and guarantee as the last collection of the referenceBlock
 		sysCollection, sysGuarantee := SystemChunkCollectionFixture(chain.ServiceAddress())
 		collections = append(collections, sysCollection)
 		sysGuarantee.ReferenceBlockID = root.ID()
@@ -140,23 +144,28 @@ func CompleteExecutionResultFixture(t *testing.T, chunkCount int, chain flow.Cha
 	header := unittest.BlockHeaderWithParentFixture(root)
 	header.PayloadHash = payload.Hash()
 
-	block := flow.Block{
+	// reference block is the block that execution receipt point to its id
+	referenceBlock := flow.Block{
 		Header:  &header,
 		Payload: &payload,
 	}
 
 	result := flow.ExecutionResult{
-		BlockID: block.ID(),
+		BlockID: referenceBlock.ID(),
 		Chunks:  chunks,
 	}
 
-	receipt := flow.ExecutionReceipt{
+	receipt := &flow.ExecutionReceipt{
 		ExecutionResult: result,
 	}
 
+	// container block is the block that contains the execution receipt of reference block
+	containerBlock := unittest.BlockWithParentFixture(referenceBlock.Header)
+	containerBlock.Payload.Receipts = []*flow.ExecutionReceipt{receipt}
+
 	return CompleteExecutionResult{
-		Receipt:        &receipt,
-		ReferenceBlock: &block,
+		ContainerBlock: &containerBlock,
+		ReferenceBlock: &referenceBlock,
 		Collections:    collections,
 		ChunkDataPacks: chunkDataPacks,
 		SpockSecrets:   spockSecrets,
