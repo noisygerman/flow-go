@@ -189,11 +189,12 @@ func LightExecutionResultFixture(chunkCount int) CompleteExecutionResult {
 	header.Height = 0
 	header.PayloadHash = payload.Hash()
 
-	block := flow.Block{
+	// reference block is the block that receipt points to its id
+	referenceBlock := flow.Block{
 		Header:  &header,
 		Payload: &payload,
 	}
-	blockID := block.ID()
+	refBlockID := referenceBlock.ID()
 
 	// creates chunks
 	chunks := make([]*flow.Chunk, 0)
@@ -201,7 +202,7 @@ func LightExecutionResultFixture(chunkCount int) CompleteExecutionResult {
 		chunk := &flow.Chunk{
 			ChunkBody: flow.ChunkBody{
 				CollectionIndex: uint(i),
-				BlockID:         blockID,
+				BlockID:         refBlockID,
 				EventCollection: unittest.IdentifierFixture(),
 			},
 			Index: uint64(i),
@@ -216,20 +217,20 @@ func LightExecutionResultFixture(chunkCount int) CompleteExecutionResult {
 	}
 
 	result := flow.ExecutionResult{
-		BlockID: blockID,
+		BlockID: refBlockID,
 		Chunks:  chunks,
 	}
 
-	receipt := flow.ExecutionReceipt{
+	receipt := &flow.ExecutionReceipt{
 		ExecutionResult: result,
 	}
 
-	containerBlock := unittest.BlockWithParentFixture(block.Header)
-	containerBlock.Payload.Receipts = []*flow.ExecutionReceipt{}
+	containerBlock := unittest.BlockWithParentFixture(referenceBlock.Header)
+	containerBlock.Payload.Receipts = []*flow.ExecutionReceipt{receipt}
 
 	return CompleteExecutionResult{
-		Receipt:        &receipt,
-		ReferenceBlock: &block,
+		ContainerBlock: &containerBlock,
+		ReferenceBlock: &referenceBlock,
 		Collections:    collections,
 		ChunkDataPacks: chunkDataPacks,
 	}
