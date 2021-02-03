@@ -73,3 +73,17 @@ func IsNodeStakedAtBlockID(state State, blockID flow.Identifier, identifier flow
 	staked := identity.Stake > 0
 	return staked, nil
 }
+
+// StakedIdentity returns corresponding identity of an identifier if it is staked at the specified block.
+func StakedIdentity(state State, blockID flow.Identifier, identifier flow.Identifier) (flow.Identity, error) {
+	identity, err := state.AtBlockID(blockID).Identity(identifier)
+	if err != nil {
+		return flow.Identity{}, fmt.Errorf("could not retrieve identity for identifier %v at block id snapshot %v: %w)", identifier, blockID, err)
+	}
+
+	if identity.Stake == 0 {
+		return flow.Identity{}, fmt.Errorf("identity %v is not staked at block id snapshot %v", identity, blockID)
+	}
+
+	return *identity, nil
+}
